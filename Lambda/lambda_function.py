@@ -73,7 +73,10 @@ def close(session_attributes, fulfillment_state, message):
         "dialogAction": {
             "type": "Close",
             "fulfillmentState": fulfillment_state,
-            "message": message,
+            "message": {
+                'contentType': 'PlainText',
+                'content': message
+            },
         },
     }
 
@@ -111,6 +114,15 @@ In this section, you will create an Amazon Lambda function that will validate th
 
 """
 
+### Validations ###
+def validate_inputs(age, investment_amount):
+    if ((age is not None) and (parse_int(age) <= 0)) or ((age is not None) and (parse_int(age) >= 65)):
+        return build_validation_result(False, 'age', 'Age must be greater than 0 and less than 65. Please try again.')
+    elif (investment_amount is not None) and (parse_int(investment_amount) < 5000):
+        return build_validation_result(False, 'investmentAmount', 'Investment amount must be greater than or equal to 5000. Please try again.')
+    else:
+        return build_validation_result(True, None, None)
+
 
 ### Intents Handlers ###
 def recommend_portfolio(intent_request):
@@ -123,8 +135,39 @@ def recommend_portfolio(intent_request):
     investment_amount = get_slots(intent_request)["investmentAmount"]
     risk_level = get_slots(intent_request)["riskLevel"]
     source = intent_request["invocationSource"]
-
-    # YOUR CODE GOES HERE!
+    slots = get_slots(intent_request)
+    
+    if source == "DialogCodeHook":
+        # Validate inputs
+        validations = validate_inputs(age, investment_amount)
+        
+        if not validations["isValid"]:
+            slots[validations["violatedSlot"]] = None
+            # Request new data for invalid input
+            return elicit_slot(
+                intent_request["sessionAttributes"],
+                intent_request["currentIntent"]["name"],
+                slots,
+                validations["violatedSlot"],
+                validations["message"],
+            )
+        return delegate(intent_request, get_slots(intent_request))
+    elif source == "FulfillmentCodeHook":
+        # Answer based on the selected risk level 
+        msg = 'Based on your profile, we recomend you to invest '
+        if risk_level.lower() == 'none':
+            msg += '100% bonds (AGG), 0% equities (SPY)'
+        elif risk_level.lower() == 'low':
+            msg += '60% bonds (AGG), 40% equities (SPY)'
+        elif risk_level.lower() == 'medium':
+            msg += '40% bonds (AGG), 60% equities (SPY)'
+        elif risk_level.lower() == 'high':
+            msg += '20% bonds (AGG), 80% equities (SPY)'
+        return close(
+            intent_request['sessionAttributes'], 
+            "Fulfilled", 
+            msg)
+    
 
 
 ### Intents Dispatcher ###
